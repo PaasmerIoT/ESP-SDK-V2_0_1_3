@@ -1,23 +1,34 @@
 #!/bin/bash
-echo "Installing...\n";
+
+echo " Installing the Board Requirements and Packages"
+echo "Please wait....."
+
+sudo apt-get install uuid
 path=`pwd`
+
+echo `rm -rf $path/details.h`
 
 getting_unique()
 {
-realcounts=$(curl --data "deviceName="$devicename"" http://ec2-52-41-46-86.us-west-2.compute.amazonaws.com/paasmerv2DevAvailability.php)
+realcounts=$(curl --data "deviceName="$devicename" &email="$username"" http://ec2-52-41-46-86.us-west-2.compute.amazonaws.com/paasmerv2DevAvailability.php)
 echo $realcounts
-if [ $realcounts = 0 ]
+if [ $realcounts = "devicename_accepted" ]
 then
 	echo "accepted"
-else
-	echo "devicename already exist"
-	read -r -p "do you want to continue with another name or you want to exit? [continue/exit] " status
-	if [ $status == "continue" ]
-	then
-    		getting_devicename
-	else
-		exit
-	fi
+elif [ $realcounts = "user_not_registered" ]
+then
+#       echo $realcounts
+        exit
+elif [ $realcounts = "devicename_already_there_for_this_user" ]
+then
+		echo "devicename already exist"
+		read -r -p "do you want to continue with another name or you want to exit? [yes/no] " status
+		if [ $status == "yes" ]
+		then
+				getting_devicename
+		else
+				exit
+		fi
 fi
 }
 
@@ -32,7 +43,34 @@ else
 	getting_devicename
 fi
 }
-getting_devicename
+
+getting_username()
+{
+read -r -p "Please enter your paasmer registered email id " username
+echo $username
+if [ ${#username} != 0 ]
+then
+        usercount=$(curl --data "UserName="$username"" http://ec2-52-41-46-86.us-west-2.compute.amazonaws.com/paasmerv2UserVerify.php)
+#       echo $usercount
+        if [ $usercount = 1 ]; then
+                echo "UserName exists, Please proceed with Device regsitration"
+                getting_devicename
+        else
+                echo "User is not Registered"
+                echo " "
+                echo "Please Register to our PaasmerIoT platform at https://dashboard.paasmer.co/"
+                exit
+        fi
+else
+        getting_username
+fi
+}
+
+getting_username
+thingname=`uuid`
+echo "#define UserName \"$username\"" >> /$path/details.h
+echo "#define DeviceName \"$devicename\"" >> /$path/details.h
+echo "#define ThingName \"$thingname\"" >> /$path/details.h
 
 cat > .Install.log << EOF3
 Logfile for Installing Paasmer...
@@ -66,6 +104,15 @@ sudo openssl ecparam -out ecckey.key -name prime256v1 -genkey
 yes "" | sudo openssl req -new -sha256 -key ecckey.key -nodes -out eccCsr.csr
 keys=$(sudo aws iot create-certificate-from-csr --certificate-signing-request file://eccCsr.csr --certificate-pem-outfile eccCert.crt --set-as-active);
 
+Thingjson=$(sudo su - root -c "aws iot create-thing --thing-name $thingname");
+echo $Thingjson >> .Install.log
+echo " Thing Json is "
+echo $Thingjson | grep "thingArn" | awk '{print $38}'
+data=$(sudo cat $path/.Install.log | grep "thingArn" | awk '{print $3'} | tr -d ',')
+#ata=$(sudo cat $path/.Install.log | grep "thingArn")
+echo $data
+echo "#define ThingArn $data" >> $path/details.h
+
 ARN=$(echo $keys|tr "," "\n"|grep "certificateArn"|awk '{print $3}');
 
 echo $ARN
@@ -83,30 +130,10 @@ const char *client_key = $client_key;
 " > client_config.c
 
 no=$RANDOM
-#sudo aws iot create-policy --policy-name Paasmer-thing-policy-$no --policy-document '{ "Version": "2012-10-17", "Statement": [{"Action": ["iot:*"], "Resource": ["*"], "Effect": "Allow" }] }'
-sudo aws iot create-policy --policy-name $devicename --policy-document '{ "Version": "2012-10-17", "Statement": [{"Action": ["iot:*"], "Resource": ["*"], "Effect": "Allow" }] }'
 
-#function Paasmer {
-#  echo "alias PAASMER='sudo aws iot attach-principal-policy --policy-name Paasmer-thing-policy-$no --principal $ARN'" >> ~/.bashrc
- #echo "alias PAASMER='sudo aws iot attach-principal-policy --policy-name $devicename --principal $ARN'" >> ~/.bashrc
- #export $(theja)
-#}'''
-sudo su - root -c "echo \"alias PAASMER='sudo aws iot attach-principal-policy --policy-name $devicename --principal $ARN'\" >> /root/.bashrc"
-#alias Paasmer='sudo aws iot attach-principal-policy --policy-name test-thing-policy-'$no' --principal '$ARN''
-#Paasmer
+sudo aws iot create-policy --policy-name $thingname --policy-document '{ "Version": "2012-10-17", "Statement": [{"Action": ["iot:*"], "Resource": ["*"], "Effect": "Allow" }] }'
 
-#xterm -e "source ~/.bashrc"
-#xterm -e "sudo PAASMER"
-
-#echo '#!/bin/bash
-#xterm -e source ~/.bashrc;
-#xterm -e sudo PAASMER;
-#echo "Done Installing...";' > Configure.sh
-
-#sudo chmod 777 Configure.sh
-#bash Configure.sh
-
-#cd ../../
+sudo su - root -c "echo \"alias PAASMER='sudo aws iot attach-principal-policy --policy-name $thingname --principal $ARN'\" >> /root/.bashrc"
 
 echo "**********************************************************************"
 echo "*      Please open new Terminal and type bellow command              *"
@@ -120,6 +147,5 @@ echo "**********************************************************************"
 echo "After device registration, edit the config file with credentials and feed details"
 
 echo "File Transfered successfully...." >> .Install.log
-echo "#define DeviceName  \"$devicename\"" > $path/deviceName.h
 sudo chmod 777 ./*
 echo $PAASMER >> .Install.log

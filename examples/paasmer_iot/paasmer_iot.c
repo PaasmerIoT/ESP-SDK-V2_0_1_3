@@ -3,23 +3,29 @@
  */
 #include "espressif/esp_common.h"
 #include "esp/uart.h"
+
 #include <string.h>
+
 #include <FreeRTOS.h>
 #include <task.h>
 #include <queue.h>
 #include <ssid_config.h>
+
 #include <espressif/esp_sta.h>
 #include <espressif/esp_wifi.h>
+
 #include <paho_mqtt_c/MQTTESP8266.h>
 #include <paho_mqtt_c/MQTTClient.h>
-#include "ssl_connection.h" // this must be ahead of any mbedtls header files so the local mbedtls/config.h can be properly referenced
-#include "config.h" //added for configuration
 
+// this must be ahead of any mbedtls header files so the local mbedtls/config.h can be properly referenced
+#include "ssl_connection.h"
+
+//added for configuration
+#include "config.h"
 #define MQTT_PUB_TOPIC "esp8266/status"
 #define MQTT_SUB_TOPIC "esp8266/control"
 #define GPIO_LED 2
 #define MQTT_PORT 8883
-
 char PUB_TOPIC[50];
 char SUB_TOPIC[100];
 /* certs, key, and endpoint */
@@ -51,6 +57,7 @@ static void beat_task(void *pvParameters) {
             printf("Publish queue overflow\r\n");
         }
 
+        
 	vTaskDelay(timePeriod / portTICK_RATE_MS);
     }
 }
@@ -65,6 +72,7 @@ typedef struct feed
 }FD;
 
 FD *hptr=NULL;
+void feedcheck();
 void feedadd();
 void print();
 void add(char *feednames,char *feedtypes,int feedpins);
@@ -93,6 +101,17 @@ void add(char *feednames,char *feedtypes,int feedpins)
 	new->pre=old;
 	}
 }
+
+void feedcheck(){
+	if(((sizeof(feedname)/sizeof(feedname[0])) == (sizeof(feedtype)/sizeof(feedtype[0]))) &&((sizeof(feedname)/sizeof(feedname[0]))== (sizeof(feedpin)/4))){
+        printf("Starting the Execution......");
+}
+        else{
+                printf("Error : Please check the Config file feed details.");
+                exit(0);
+        }
+}
+
 void feedadd(){
 
 	int i=0,j=0;
@@ -100,7 +119,7 @@ void feedadd(){
 	printf("j value is %d\n",j);
 	do{
 		add(feedname[i],feedtype[i],feedpin[i]);
-		printf("feedname=%s,feedtype=%s,feedpin=%d",feedname[i],feedtype[i],feedpin[i]);//}
+		printf("feedname=%s,feedtype=%s,feedpin=%d",feedname[i],feedtype[i],feedpin[i]);
 		if(!strcmp(feedtype[i],"actuator"))
 			gpio_enable(feedpin[i],GPIO_OUTPUT);
 		else
@@ -108,6 +127,7 @@ void feedadd(){
 		i++;
 		printf("%d",i);
 	}while(i<j);
+
 }
 
 static void topic_received(mqtt_message_data_t *md) {
@@ -132,6 +152,8 @@ static void topic_received(mqtt_message_data_t *md) {
 			{
 				gpio_write(ptrs->feedpin,1);
 				printf("%s turned on",ptrs->feedname);
+				
+
 			}
 			else if(strstr(message->payload,"off"))
 			{
@@ -266,7 +288,7 @@ static void mqtt_task(void *pvParameters) {
         xQueueReset(publish_queue);
 
         while (wifi_alive && !ssl_reset) {
-            char msg[512];
+            char msg[600];
             while (xQueueReceive(publish_queue, (void *) msg, 0) == pdTRUE) {
                 portTickType task_tick = xTaskGetTickCount();
                 uint32_t free_heap = xPortGetFreeHeapSize();
@@ -281,13 +303,13 @@ static void mqtt_task(void *pvParameters) {
 
 				while(ptr){
 					feed1Value = gpio_read(ptr->feedpin);
-					snprintf(msg,sizeof(msg),"{\n\"feeds\":[{\"feedname\":\"%s\",\n\"feedtype\":\"%s\",\n\"feedpin\":\"%d\",\"feedvalue\":\"%d\"},",ptr->feedname,ptr->feedtype,ptr->feedpin,feed1Value);
+					snprintf(msg,sizeof(msg),"{\n\"feeds\":[{\"feedname\":\"%s\",\n\"feedtype\":\"%s\",\n\"feedpin\":\"%d\",\"feedvalue\":\"%d\",\"ConnectionType\":\"GPIO\"},",ptr->feedname,ptr->feedtype,ptr->feedpin,feed1Value);
 					ptr=ptr->next;
 					feed1Value=0;
 					if(ptr)
 					{
 						feed2Value = gpio_read(ptr->feedpin);
-						snprintf(feed2Details,sizeof(feed2Details),"\n{\"feedname\":\"%s\",\n\"feedtype\":\"%s\",\n\"feedpin\":\"%d\",\"feedvalue\":\"%d\"},",ptr->feedname,ptr->feedtype,ptr->feedpin,feed2Value);
+						snprintf(feed2Details,sizeof(feed2Details),"\n{\"feedname\":\"%s\",\n\"feedtype\":\"%s\",\n\"feedpin\":\"%d\",\"feedvalue\":\"%d\",\"ConnectionType\":\"GPIO\"},",ptr->feedname,ptr->feedtype,ptr->feedpin,feed2Value);
 						strcat(msg,feed2Details);
 						ptr=ptr->next;
 						feed2Value=0;
@@ -295,13 +317,13 @@ static void mqtt_task(void *pvParameters) {
 					}
 					else
 					{
-						snprintf(feed2Details,sizeof(feed2Details),"\n{\"feedname\":\"\",\n\"feedtype\":\"\",\n\"feedpin\":\"\",\n\"feedvalue\":\"\"},\n");
+						snprintf(feed2Details,sizeof(feed2Details),"\n{\"feedname\":\"\",\n\"feedtype\":\"\",\n\"feedpin\":\"\",\n\"feedvalue\":\"\",\"ConnectionType\":\"\"},\n");
 						strcat(msg,feed2Details);
 					}
 					if(ptr)
 					{
 						feed3Value = gpio_read(ptr->feedpin);
-						snprintf(feed3Details,sizeof(feed3Details),"\n{\"feedname\":\"%s\",\n\"feedtype\":\"%s\",\n\"feedpin\":\"%d\",\n\"feedvalue\":\"%d\"}],",ptr->feedname,ptr->feedtype,ptr->feedpin,feed3Value);
+						snprintf(feed3Details,sizeof(feed3Details),"\n{\"feedname\":\"%s\",\n\"feedtype\":\"%s\",\n\"feedpin\":\"%d\",\n\"feedvalue\":\"%d\",\"ConnectionType\":\"GPIO\"}],",ptr->feedname,ptr->feedtype,ptr->feedpin,feed3Value);
 
 						strcat(msg,feed3Details);
 						ptr=ptr->next;
@@ -309,13 +331,13 @@ static void mqtt_task(void *pvParameters) {
 						strcpy(feed3Details,"\0");
 					}
 					else{
-						snprintf(feed3Details,sizeof(feed3Details),"\n{\"feedname\":\"\",\n\"feedtype\":\"\",\n\"feedpin\":\"\",\n\"feedvalue\":\"\"}],");
+						snprintf(feed3Details,sizeof(feed3Details),"\n{\"feedname\":\"\",\n\"feedtype\":\"\",\n\"feedpin\":\"\",\n\"feedvalue\":\"\",\"ConnectionType\":\"\"}],");
 						strcat(msg,feed3Details);
 						printf("\nEof linkedlist\n");
 					}
 
 
-					snprintf(Credentials,sizeof(Credentials),"\"messagecount\": \"%d\",\"paasmerid\":\"%x\",\"username\":\"%s\",\"devicename\":\"%s\",\"devicetype\":\"ESP\"}",msgCount,mac_id,UserName,DeviceName);
+					snprintf(Credentials,sizeof(Credentials),"\"messagecount\": \"%d\",\"paasmerid\":\"%x\",\"username\":\"%s\",\"devicename\":\"%s\",\"devicetype\":\"ESP8266\",\"ThingName\":\"%s\"}",msgCount,mac_id,UserName,DeviceName,ThingName);
 					strcat(msg,Credentials);
 			    		msgCount++;
 					printf("%d\n",msgCount);
@@ -400,9 +422,9 @@ void user_init(void) {
     uart_set_baud(0, 115200);
     printf("SDK version: %s, free heap %u\n", sdk_system_get_sdk_version(),
             xPortGetFreeHeapSize());
+	feedcheck();
 	feedadd();
-	
-    publish_queue = xQueueCreate(3, 16);
+	publish_queue = xQueueCreate(3, 16);
     xTaskCreate(&wifi_task, (int8_t *) "wifi_task", 256, NULL, 2, NULL);
     xTaskCreate(&beat_task, (int8_t *) "beat_task", 256, NULL, 2, NULL);
     xTaskCreate(&mqtt_task, (int8_t *) "mqtt_task", 2048, NULL, 2, NULL);
